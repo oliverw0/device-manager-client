@@ -60,8 +60,26 @@ chmod 600 "${ENV_FILE}"
 
 cp "${SCRIPT_DIR}/devicemanager-client.service" "${SERVICE_FILE}"
 
+# Preflight: run one real report (exact URL + key + endpoint) before enabling the
+# service, so a bad URL / firewall / wrong key is reported now instead of being
+# buried in the journal later.
+echo
+echo "Running a one-shot connectivity test to ${HOST_URL}..."
+if ( cd "${INSTALL_DIR}" && HOST_URL="${HOST_URL}" API_KEY="${API_KEY}" \
+     REPORT_INTERVAL="${REPORT_INTERVAL}" ./venv/bin/python -m client.main --once ); then
+  echo "  connectivity test PASSED"
+else
+  echo
+  echo "  connectivity test FAILED (see the error above)."
+  echo "  The service will still be installed and will keep retrying once started."
+  echo "  Fix HOST_URL / API_KEY in ${ENV_FILE} then run: systemctl restart devicemanager-client"
+fi
+
 systemctl daemon-reload
 systemctl enable --now devicemanager-client
 
+echo
 echo "Installed and started. Check status with: systemctl status devicemanager-client"
 echo "Logs: journalctl -u devicemanager-client -f"
+echo "Re-test connectivity any time with:"
+echo "  (cd ${INSTALL_DIR} && set -a && . ${ENV_FILE} && set +a && ./venv/bin/python -m client.main --once)"
