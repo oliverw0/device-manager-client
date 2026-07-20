@@ -43,11 +43,28 @@ API_KEY="${API_KEY:-}"
 REPORT_INTERVAL="${REPORT_INTERVAL:-60}"
 
 if [[ -z "${HOST_URL}" ]]; then
-  read -rp "DeviceManager host URL (e.g. http://10.0.0.5:8000): " HOST_URL
+  echo "Enter the DeviceManager host URL. Include the port. Example: http://192.168.50.225:8000"
+  read -rp "Host URL: " HOST_URL
 fi
 if [[ -z "${API_KEY}" ]]; then
   read -rp "API key for this device (from the host dashboard): " API_KEY
 fi
+
+# Reject empties and add http:// if the user typed a bare host:port.
+if [[ -z "${HOST_URL}" || -z "${API_KEY}" ]]; then
+  echo "HOST_URL and API_KEY are both required. Aborting." >&2
+  exit 1
+fi
+HOST_URL="${HOST_URL%/}"
+if [[ "${HOST_URL}" != http://* && "${HOST_URL}" != https://* ]]; then
+  HOST_URL="http://${HOST_URL}"
+fi
+
+echo
+echo "Using these settings:"
+echo "  HOST_URL = ${HOST_URL}"
+echo "  API_KEY  = ${API_KEY:0:6}… (${#API_KEY} chars)"
+echo
 
 cat > "${ENV_FILE}" <<EOF
 HOST_URL=${HOST_URL}

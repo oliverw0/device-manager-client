@@ -13,9 +13,18 @@ def _require(name: str) -> str:
     return value
 
 
+def _normalize_host_url(value: str) -> str:
+    # Tolerate a bare host:port (a very easy thing to type). Without a scheme,
+    # httpx can't build a request and every report silently fails.
+    value = value.strip().rstrip("/")
+    if not value.startswith(("http://", "https://")):
+        value = "http://" + value
+    return value
+
+
 class Config:
     def __init__(self) -> None:
-        self.host_url: str = _require("HOST_URL").rstrip("/")
+        self.host_url: str = _normalize_host_url(_require("HOST_URL"))
         self.api_key: str = _require("API_KEY")
         self.report_interval: int = int(os.environ.get("REPORT_INTERVAL", "60"))
         self.ssh_log_window_minutes: int = int(os.environ.get("SSH_LOG_WINDOW_MINUTES", "15"))

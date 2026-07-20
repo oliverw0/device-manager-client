@@ -23,10 +23,15 @@ def _parse_status(data: dict) -> dict:
             exit_node = peer.get("HostName") or peer.get("DNSName")
             break
 
+    # MagicDNS name for this node, e.g. "plex-server.tnet-name.ts.net."
+    # (tailscaled reports it with a trailing dot; strip it for display/copy).
+    dns_name = (self_info.get("DNSName") or "").rstrip(".") or None
+
     return {
         "connected": backend_state == "Running",
         "backend_state": backend_state,
         "ips": self_info.get("TailscaleIPs", []),
+        "dns_name": dns_name,
         "tailnet": tailnet,
         "exit_node": exit_node,
     }
