@@ -1,0 +1,15 @@
+services:
+  devicemanager-client:
+    build: .
+    container_name: devicemanager-client
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Lets the client see sibling containers on this Docker host. Read-only.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Optional: uncomment to let the container see the host's Tailscale CLI/socket
+      # and SSH auth logs. Without these the client still works, it just reports
+      # tailscale as "not_installed" and ssh_auth as all-zero. See README for details.
+      # - /var/run/tailscale:/var/run/tailscale:ro
+      # - /var/log/auth.log:/var/log/auth.log:ro

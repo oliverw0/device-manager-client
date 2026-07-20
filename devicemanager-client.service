@@ -1,0 +1,19 @@
+[Unit]
+Description=DeviceManager monitoring client
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/devicemanager-client.env
+WorkingDirectory=/opt/devicemanager-client
+ExecStart=/opt/devicemanager-client/venv/bin/python -m client.main
+Restart=on-failure
+RestartSec=5
+
+# Needs root (or equivalent group membership) to read sshd's journal/auth.log
+# and to talk to /var/run/docker.sock. Narrow this down if your setup allows it.
+User=root
+
+[Install]
+WantedBy=multi-user.target
