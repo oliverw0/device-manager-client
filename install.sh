@@ -93,7 +93,11 @@ else
 fi
 
 systemctl daemon-reload
-systemctl enable --now devicemanager-client
+systemctl enable devicemanager-client
+# Use restart (not `enable --now`): if the service was already running from a
+# previous install, `start` is a no-op and it would keep the STALE environment
+# it loaded at its original start. restart always reloads the new env file.
+systemctl restart devicemanager-client
 
 echo
 echo "Installed and started. Check status with: systemctl status devicemanager-client"
