@@ -37,7 +37,12 @@ def run_forever() -> None:
             report = gather_report(config)
             ok = send_report(config, report)
             if ok:
-                logger.info("Report sent (cpu=%.0f%% mem=%.0f%%)", report["system"]["cpu_percent"], report["system"]["mem_percent"])
+                logger.info(
+                    "Report sent (cpu=%.0f%% mem=%.0f%% tailscale=%s)",
+                    report["system"]["cpu_percent"],
+                    report["system"]["mem_percent"],
+                    (report.get("tailscale") or {}).get("backend_state"),
+                )
         except Exception:
             logger.exception("Unexpected error while collecting/sending report")
         time.sleep(config.report_interval)
