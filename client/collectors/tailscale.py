@@ -79,14 +79,20 @@ def _via_cli() -> dict | None:
 
 
 def collect() -> dict:
-    # Prefer the socket (works in Docker without the CLI); fall back to the CLI.
-    result = _via_localapi()
-    if result is not None:
-        return result
+    # Never let a Tailscale problem crash the client's report cycle: any
+    # unexpected error here just means "we couldn't read Tailscale", which
+    # is reported as not_installed and surfaced as "No Tailscale client".
+    try:
+        # Prefer the socket (works in Docker without the CLI); fall back to the CLI.
+        result = _via_localapi()
+        if result is not None:
+            return result
 
-    result = _via_cli()
-    if result is not None:
-        return result
+        result = _via_cli()
+        if result is not None:
+            return result
+    except Exception:
+        pass
 
-    # Neither the socket nor the CLI is available.
+    # Neither the socket nor the CLI is available (or reading them failed).
     return {"connected": False, "backend_state": "not_installed", "ips": []}

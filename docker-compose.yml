@@ -8,12 +8,12 @@ services:
     volumes:
       # Lets the client see sibling containers on this Docker host. Read-only.
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      # Lets the client read the host's Tailscale status via tailscaled's LocalAPI
-      # socket - no `tailscale` CLI needed inside the container. If this path
-      # doesn't exist on your host, Tailscale isn't running there and the client
-      # will report backend_state "not_installed".
-      - /var/run/tailscale:/var/run/tailscale:ro
-      # Optional: uncomment to surface SSH auth activity from the host's logs.
-      # Without it, ssh_auth reports all-zero. Use whichever your distro has.
+      # OPTIONAL - Tailscale status. Only uncomment this if the host actually
+      # runs Tailscale, otherwise Docker refuses to start the container with
+      # "bind mount failed: /var/run/tailscale does not exist". Left out, the
+      # client simply reports "No Tailscale client" and keeps running.
+      # - /var/run/tailscale:/var/run/tailscale:ro
+      # OPTIONAL - SSH auth activity from the host's logs. Without it, ssh_auth
+      # reports all-zero. Uncomment whichever your distro has.
       # - /var/log/auth.log:/var/log/auth.log:ro
       # - /var/log/secure:/var/log/secure:ro

@@ -92,6 +92,56 @@ else
   echo "  Fix HOST_URL / API_KEY in ${ENV_FILE} then run: systemctl restart devicemanager-client"
 fi
 
+# --- Optional: provision the dashboard's SSH key for in-browser terminal access ---
+ENABLE_SSH="${ENABLE_SSH:-}"
+if [[ -z "${ENABLE_SSH}" ]]; then
+  read -rp "Enable in-browser SSH terminal access from the dashboard? [y/N]: " ENABLE_SSH
+fi
+if [[ "${ENABLE_SSH}" =~ ^[Yy] ]]; then
+  SSH_USER="${SSH_USER:-}"
+  if [[ -z "${SSH_USER}" ]]; then
+    read -rp "Which local user should the dashboard be able to SSH in as? [root]: " SSH_USER
+  fi
+  SSH_USER="${SSH_USER:-root}"
+
+  if ! id "${SSH_USER}" >/dev/null 2>&1; then
+    echo "  user '${SSH_USER}' does not exist; skipping SSH provisioning." >&2
+  else
+    # Ensure an SSH server is present (LXC/containers often ship without one).
+    if ! command -v sshd >/dev/null 2>&1; then
+      if command -v apt-get >/dev/null 2>&1; then
+        echo "  installing openssh-server..."
+        apt-get update -y && apt-get install -y openssh-server
+      else
+        echo "  WARNING: no sshd found and can't auto-install it; install an SSH server manually." >&2
+      fi
+    fi
+    systemctl enable --now ssh 2>/dev/null || systemctl enable --now sshd 2>/dev/null || true
+
+    echo "  fetching the dashboard's public key from ${HOST_URL}/api/v1/ssh-pubkey..."
+    PUBKEY="$(curl -fsS "${HOST_URL}/api/v1/ssh-pubkey" || true)"
+    if [[ -z "${PUBKEY}" ]]; then
+      echo "  WARNING: could not fetch the host public key; skipping. You can re-run this later." >&2
+    else
+      USER_HOME="$(getent passwd "${SSH_USER}" | cut -d: -f6)"
+      SSH_DIR="${USER_HOME}/.ssh"
+      AUTH_KEYS="${SSH_DIR}/authorized_keys"
+      mkdir -p "${SSH_DIR}"
+      touch "${AUTH_KEYS}"
+      if grep -qF "${PUBKEY}" "${AUTH_KEYS}"; then
+        echo "  key already present in ${AUTH_KEYS}"
+      else
+        printf '%s\n' "${PUBKEY}" >> "${AUTH_KEYS}"
+        echo "  added dashboard key to ${AUTH_KEYS}"
+      fi
+      chmod 700 "${SSH_DIR}"
+      chmod 600 "${AUTH_KEYS}"
+      chown -R "${SSH_USER}:$(id -gn "${SSH_USER}")" "${SSH_DIR}"
+      echo "  SSH access provisioned for '${SSH_USER}'. Toggle it on for this device in the dashboard."
+    fi
+  fi
+fi
+
 systemctl daemon-reload
 systemctl enable devicemanager-client
 # Use restart (not `enable --now`): if the service was already running from a
