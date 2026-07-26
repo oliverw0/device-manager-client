@@ -77,6 +77,7 @@ def collect() -> list[dict]:
                     "image": image,
                     "status": c.status,
                     "started_at": started_at,
+                    "stack": (c.labels or {}).get("com.docker.compose.project"),
                     "cpu_percent": _calc_cpu_percent(stats) if stats else None,
                     "mem_percent": _calc_mem_percent(stats) if stats else None,
                 }
