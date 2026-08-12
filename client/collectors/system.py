@@ -18,12 +18,43 @@ def _local_ip():
         s.close()
 
 
+def _hostname() -> str:
+    """Real machine name. In a container socket.gethostname() is the container
+    id, so prefer the host's /etc/hostname when it's mounted at /host (see
+    docker-compose.yml). Native installs fall through to socket."""
+    try:
+        with open("/host/etc/hostname") as f:
+            name = f.read().strip()
+            if name:
+                return name
+    except OSError:
+        pass
+    return socket.gethostname()
+
+
+def _uptime_seconds() -> float:
+    """Host uptime. /proc/uptime is the host's even inside a container, and
+    doesn't depend on psutil's boot_time (which can read container-scoped)."""
+    try:
+        with open("/proc/uptime") as f:
+            return float(f.read().split()[0])
+    except (OSError, ValueError):
+        return time.time() - psutil.boot_time()
+
+
 def collect() -> dict:
+    vm = psutil.virtual_memory()
+    du = psutil.disk_usage("/")
     return {
-        "hostname": socket.gethostname(),
+        "hostname": _hostname(),
         "cpu_percent": psutil.cpu_percent(interval=1),
-        "mem_percent": psutil.virtual_memory().percent,
-        "disk_percent": psutil.disk_usage("/").percent,
-        "uptime_seconds": time.time() - psutil.boot_time(),
+        "cpu_cores": psutil.cpu_count(logical=True),
+        "mem_percent": vm.percent,
+        "mem_used_bytes": vm.total - vm.available,  # matches how .percent is derived
+        "mem_total_bytes": vm.total,
+        "disk_percent": du.percent,
+        "disk_used_bytes": du.used,
+        "disk_total_bytes": du.total,
+        "uptime_seconds": _uptime_seconds(),
         "local_ip": _local_ip(),
     }

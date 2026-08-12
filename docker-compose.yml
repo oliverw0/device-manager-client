@@ -8,6 +8,8 @@ services:
     volumes:
       # Lets the client see sibling containers on this Docker host. Read-only.
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # So the client reports the machine's name, not the container id. Read-only.
+      - /etc/hostname:/host/etc/hostname:ro
       # OPTIONAL - Tailscale status. Only uncomment this if the host actually
       # runs Tailscale, otherwise Docker refuses to start the container with
       # "bind mount failed: /var/run/tailscale does not exist". Left out, the
