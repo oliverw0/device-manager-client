@@ -19,3 +19,10 @@ services:
       # reports all-zero. Uncomment whichever your distro has.
       # - /var/log/auth.log:/var/log/auth.log:ro
       # - /var/log/secure:/var/log/secure:ro
+      # OPTIONAL - apt update-staleness of the HOST (not the container). Mount the
+      # host's apt state read-only and set APT_STATE_DIR below. Without it, apt
+      # reports "not available" and the device is never flagged for updates.
+      # (Upgradable *count* stays native-only; staleness age works via this mount.)
+      # - /var/lib/apt:/host/var/lib/apt:ro
+    # environment:
+    #   - APT_STATE_DIR=/host/var/lib/apt

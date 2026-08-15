@@ -3,7 +3,7 @@ import logging
 import httpx
 
 from .config import Config
-from .collectors import docker_containers, ssh_auth, system, tailscale, users
+from .collectors import apt, docker_containers, ssh_auth, system, tailscale, users
 
 logger = logging.getLogger("devicemanager.client")
 
@@ -15,6 +15,7 @@ def gather_report(config: Config) -> dict:
         "ssh_auth": ssh_auth.collect(config.ssh_log_window_minutes),
         "docker_containers": docker_containers.collect(),
         "ssh_users": users.collect(),
+        "apt": apt.collect(),
     }
 
 
