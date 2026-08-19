@@ -40,42 +40,52 @@ python3 -m venv "${INSTALL_DIR}/venv"
 "${INSTALL_DIR}/venv/bin/pip" install --no-cache-dir --upgrade pip
 "${INSTALL_DIR}/venv/bin/pip" install --no-cache-dir -r "${INSTALL_DIR}/requirements.txt"
 
-HOST_URL="${HOST_URL:-}"
-API_KEY="${API_KEY:-}"
-REPORT_INTERVAL="${REPORT_INTERVAL:-60}"
+# --- config: write ${ENV_FILE} on first run, then reuse it so your HOST_URL /
+# API_KEY persist across reinstalls. Pass HOST_URL=... API_KEY=... to overwrite,
+# or delete ${ENV_FILE} to reconfigure from scratch. ---
+if [[ -f "${ENV_FILE}" && -z "${HOST_URL:-}" && -z "${API_KEY:-}" ]]; then
+  echo "${ENV_FILE} already exists — keeping it (delete it to reconfigure)."
+  set -a; . "${ENV_FILE}"; set +a   # load saved values for the connectivity test below
+else
+  HOST_URL="${HOST_URL:-}"
+  API_KEY="${API_KEY:-}"
+  REPORT_INTERVAL="${REPORT_INTERVAL:-60}"
 
-if [[ -z "${HOST_URL}" ]]; then
-  echo "Enter the DeviceManager host URL. Include the port. Example: http://192.168.50.225:8000"
-  read -rp "Host URL: " HOST_URL
-fi
-if [[ -z "${API_KEY}" ]]; then
-  read -rp "API key for this device (from the host dashboard): " API_KEY
-fi
+  if [[ -z "${HOST_URL}" ]]; then
+    echo "Enter the DeviceManager host URL. Include the port. Example: http://192.168.50.225:8000"
+    read -rp "Host URL: " HOST_URL
+  fi
+  if [[ -z "${API_KEY}" ]]; then
+    read -rp "API key for this device (from the host dashboard): " API_KEY
+  fi
 
-# Reject empties and add http:// if the user typed a bare host:port.
-if [[ -z "${HOST_URL}" || -z "${API_KEY}" ]]; then
-  echo "HOST_URL and API_KEY are both required. Aborting." >&2
-  exit 1
-fi
-HOST_URL="${HOST_URL%/}"
-if [[ "${HOST_URL}" != http://* && "${HOST_URL}" != https://* ]]; then
-  HOST_URL="http://${HOST_URL}"
-fi
+  # Reject empties and add http:// if the user typed a bare host:port.
+  if [[ -z "${HOST_URL}" || -z "${API_KEY}" ]]; then
+    echo "HOST_URL and API_KEY are both required. Aborting." >&2
+    exit 1
+  fi
+  HOST_URL="${HOST_URL%/}"
+  if [[ "${HOST_URL}" != http://* && "${HOST_URL}" != https://* ]]; then
+    HOST_URL="http://${HOST_URL}"
+  fi
 
-echo
-echo "Using these settings:"
-echo "  HOST_URL = ${HOST_URL}"
-echo "  API_KEY  = ${API_KEY:0:6}… (${#API_KEY} chars)"
-echo
-
-cat > "${ENV_FILE}" <<EOF
+  cat > "${ENV_FILE}" <<EOF
 HOST_URL=${HOST_URL}
 API_KEY=${API_KEY}
 REPORT_INTERVAL=${REPORT_INTERVAL}
 SSH_LOG_WINDOW_MINUTES=15
 REQUEST_TIMEOUT_SECONDS=10
 EOF
-chmod 600 "${ENV_FILE}"
+  chmod 600 "${ENV_FILE}"
+  echo "Wrote ${ENV_FILE}"
+fi
+REPORT_INTERVAL="${REPORT_INTERVAL:-60}"  # fallback if an older env file omitted it
+
+echo
+echo "Using these settings:"
+echo "  HOST_URL = ${HOST_URL}"
+echo "  API_KEY  = ${API_KEY:0:6}… (${#API_KEY} chars)"
+echo
 
 cp "${SCRIPT_DIR}/devicemanager-client.service" "${SERVICE_FILE}"
 
