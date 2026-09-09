@@ -10,6 +10,9 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       # So the client reports the machine's name, not the container id. Read-only.
       - /etc/hostname:/host/etc/hostname:ro
+      # So the terminal user dropdown lists the HOST's login users (root, oliver,
+      # …), not the container's. Without it only 'root' shows. Read-only.
+      - /etc/passwd:/host/etc/passwd:ro
       # OPTIONAL - Tailscale status. Only uncomment this if the host actually
       # runs Tailscale, otherwise Docker refuses to start the container with
       # "bind mount failed: /var/run/tailscale does not exist". Left out, the
