@@ -116,7 +116,23 @@ def _windows_version() -> str | None:
     return f"{name} ({display})" if display else (name or None)
 
 
+def _docker_host_os() -> str | None:
+    """In the Docker client, /etc/os-release is the image's (Debian). The Docker
+    daemon knows the machine's real distro, over the socket we already mount —
+    so no extra mount (and no edit to anyone's docker-compose.yml) is needed."""
+    try:
+        import docker
+
+        return docker.from_env(timeout=5).info().get("OperatingSystem") or None
+    except Exception:
+        return None
+
+
 def _linux_version() -> str | None:
+    if os.path.exists("/.dockerenv") and not os.path.exists("/host/etc/os-release"):
+        found = _docker_host_os()
+        if found:
+            return found
     for path in ("/host/etc/os-release", "/etc/os-release"):
         try:
             with open(path) as f:
