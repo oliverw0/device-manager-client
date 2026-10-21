@@ -92,6 +92,11 @@ def _disks() -> list[dict]:
             continue
         if IS_WINDOWS and "fixed" not in part.opts:  # skips CD drives and USB sticks
             continue
+        # Docker bind-mounts single files into every container (/etc/resolv.conf,
+        # /etc/hostname, /etc/hosts, our /host/... files): they show up as mounts
+        # of the machine's disk but aren't drives.
+        if not os.path.isdir(part.mountpoint):
+            continue
         try:
             du = psutil.disk_usage(part.mountpoint)
         except OSError:  # unmounted / no media
