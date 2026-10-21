@@ -46,6 +46,15 @@ function Install-DeviceManagerClient {
     # The dashboard parses STAGE: lines from -Update for its progress bar.
     function Stage($name) { if ($Update) { Write-Output "STAGE:$name" } }
     function Info($msg) { Write-Host $msg }
+    # Run a native tool, showing its output. With ErrorActionPreference=Stop,
+    # PowerShell 5.1 can turn a tool's stderr chatter (git's "From github.com",
+    # pip warnings) into a terminating error when output is redirected, as it is
+    # over SSH; success is judged by $LASTEXITCODE instead.
+    function Invoke-Native([scriptblock]$cmd) {
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try { & $cmd 2>&1 | ForEach-Object { Info "$_" } } finally { $ErrorActionPreference = $prev }
+    }
 
     $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -68,11 +77,24 @@ function Install-DeviceManagerClient {
         if ($recorded -and (Test-Path (Join-Path $recorded 'client\main.py'))) { $src = $recorded }
     }
 
-    if ($src -and $Update -and (Test-Path (Join-Path $src '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {
-        Info "Pulling latest code in $src ..."
-        # safe.directory: the checkout is usually owned by a different account than the one updating.
-        & git -c "safe.directory=*" -C $src pull --ff-only
-        if ($LASTEXITCODE -ne 0) { throw "git pull failed in $src" }
+    # -Update runs unattended (the dashboard starts it over SSH), so a recorded
+    # checkout is only used if git can pull it without prompting; anything else
+    # (no git, plain folder copy, pull failed) falls back to the GitHub zip so an
+    # update never just re-copies the same old code.
+    if ($src -and $Update -and -not $Source) {
+        $pulled = $false
+        if ((Test-Path (Join-Path $src '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+            Info "Pulling latest code in $src ..."
+            $env:GIT_TERMINAL_PROMPT = '0'                    # no username/password prompt
+            $env:GIT_SSH_COMMAND = 'ssh -o BatchMode=yes'     # no passphrase / host-key prompt
+            # safe.directory: the checkout is usually owned by a different account than the one updating.
+            Invoke-Native { git -c "safe.directory=*" -C $src pull --ff-only }
+            $pulled = $LASTEXITCODE -eq 0
+        }
+        if (-not $pulled) {
+            Info "Couldn't update $src in place; downloading the latest release instead."
+            $src = $null
+        }
     }
 
     if (-not $src) {
@@ -168,11 +190,11 @@ function Install-DeviceManagerClient {
     # Rebuild the venv if it's missing or was made from a Python that's gone.
     if (-not (Test-Path $VenvPy) -or -not (Get-PyVersion $VenvPy)) {
         if (Test-Path (Join-Path $InstallDir 'venv')) { Remove-Item (Join-Path $InstallDir 'venv') -Recurse -Force }
-        & $python -m venv (Join-Path $InstallDir 'venv')
+        Invoke-Native { & $python -m venv (Join-Path $InstallDir 'venv') }
         if ($LASTEXITCODE -ne 0) { throw 'Creating the virtualenv failed.' }
     }
-    & $VenvPy -m pip install --disable-pip-version-check --no-cache-dir --quiet --upgrade pip
-    & $VenvPy -m pip install --disable-pip-version-check --no-cache-dir --quiet -r (Join-Path $InstallDir 'requirements.txt')
+    Invoke-Native { & $VenvPy -m pip install --disable-pip-version-check --no-cache-dir --quiet --upgrade pip }
+    Invoke-Native { & $VenvPy -m pip install --disable-pip-version-check --no-cache-dir --quiet -r (Join-Path $InstallDir 'requirements.txt') }
     if ($LASTEXITCODE -ne 0) { throw 'Installing Python dependencies failed.' }
 
     # --- 5. config -----------------------------------------------------------
