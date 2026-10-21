@@ -13,6 +13,9 @@ services:
       # So the terminal user dropdown lists the HOST's login users (root, oliver,
       # …), not the container's. Without it only 'root' shows. Read-only.
       - /etc/passwd:/host/etc/passwd:ro
+      # So the dashboard shows the HOST's distro (and its icon), not the
+      # container image's (which is Debian). Read-only.
+      - /etc/os-release:/host/etc/os-release:ro
       # OPTIONAL - Tailscale status. Only uncomment this if the host actually
       # runs Tailscale, otherwise Docker refuses to start the container with
       # "bind mount failed: /var/run/tailscale does not exist". Left out, the
