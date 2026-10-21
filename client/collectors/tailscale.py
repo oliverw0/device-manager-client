@@ -1,8 +1,11 @@
 import json
 import os
+import shutil
 import subprocess
 
 import httpx
+
+from ..win import IS_WINDOWS
 
 # tailscaled exposes a LocalAPI over this unix socket that returns the same JSON
 # shape as `tailscale status --json`. Talking to it directly means the client
@@ -55,13 +58,29 @@ def _via_localapi() -> dict | None:
         return None
 
 
+def _cli_path() -> str:
+    """`tailscale` on PATH, else the Windows installer's default location (the
+    machine PATH entry isn't always visible to a SYSTEM task started at boot)."""
+    found = shutil.which("tailscale")
+    if found:
+        return found
+    if IS_WINDOWS:
+        exe = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Tailscale", "tailscale.exe")
+        if os.path.exists(exe):
+            return exe
+    return "tailscale"
+
+
 def _via_cli() -> dict | None:
-    """Fall back to the `tailscale` CLI (native installs where the binary is on PATH)."""
+    """Fall back to the `tailscale` CLI (native installs where the binary is on
+    PATH, and Windows, where tailscaled listens on a named pipe, not a socket)."""
     try:
         result = subprocess.run(
-            ["tailscale", "status", "--json"],
+            [_cli_path(), "status", "--json"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
     except FileNotFoundError:

@@ -1,12 +1,26 @@
 import logging
+import logging.handlers
+import os
 import sys
 import time
 
-from .config import load_config
+from .config import load_config, load_env_file
 from .sender import gather_report, send_report
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("devicemanager.client")
+
+
+def _setup_file_logging() -> None:
+    """LOG_FILE: also log to a rotating file. The Windows scheduled task has no
+    console or journal, so this is where its output goes."""
+    path = os.environ.get("LOG_FILE")
+    if not path:
+        return
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    handler = logging.handlers.RotatingFileHandler(path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.getLogger().addHandler(handler)
 
 
 def run_once() -> int:
@@ -49,6 +63,12 @@ def run_forever() -> None:
 
 
 if __name__ == "__main__":
+    if "--env-file" in sys.argv:
+        i = sys.argv.index("--env-file")
+        if i + 1 >= len(sys.argv):
+            raise SystemExit("--env-file needs a path")
+        load_env_file(sys.argv[i + 1])
+    _setup_file_logging()
     if "--once" in sys.argv:
         raise SystemExit(run_once())
     run_forever()

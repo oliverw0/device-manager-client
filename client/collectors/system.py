@@ -1,7 +1,11 @@
+import os
+import platform
 import socket
 import time
 
 import psutil
+
+from ..win import IS_WINDOWS
 
 
 def _local_ip():
@@ -42,11 +46,61 @@ def _uptime_seconds() -> float:
         return time.time() - psutil.boot_time()
 
 
+def _disk_root() -> str:
+    # "/" on Windows means the current drive, which for a service may not be C:.
+    if IS_WINDOWS:
+        return os.environ.get("SystemDrive", "C:") + "\\"
+    return "/"
+
+
+def _windows_version() -> str | None:
+    """e.g. "Windows Server 2022 Datacenter (21H2)" or "Windows 11 Pro (24H2)".
+    ProductName still says "Windows 10" on Windows 11, so fix it up by build."""
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") as k:
+            def get(name):
+                try:
+                    return str(winreg.QueryValueEx(k, name)[0])
+                except OSError:
+                    return ""
+            name = get("ProductName")
+            build = get("CurrentBuildNumber")
+            display = get("DisplayVersion") or get("ReleaseId")
+    except OSError:
+        return None
+    if name.startswith("Windows 10") and build.isdigit() and int(build) >= 22000:
+        name = "Windows 11" + name[len("Windows 10"):]
+    return f"{name} ({display})" if display else (name or None)
+
+
+def _linux_version() -> str | None:
+    for path in ("/host/etc/os-release", "/etc/os-release"):
+        try:
+            with open(path) as f:
+                for line in f:
+                    if line.startswith("PRETTY_NAME="):
+                        return line.split("=", 1)[1].strip().strip('"') or None
+        except OSError:
+            continue
+    return None
+
+
+def _os_version() -> str | None:
+    try:
+        return _windows_version() if IS_WINDOWS else _linux_version()
+    except Exception:
+        return None
+
+
 def collect() -> dict:
     vm = psutil.virtual_memory()
-    du = psutil.disk_usage("/")
+    du = psutil.disk_usage(_disk_root())
     return {
         "hostname": _hostname(),
+        "os": "windows" if IS_WINDOWS else platform.system().lower(),
+        "os_version": _os_version(),
         "cpu_percent": psutil.cpu_percent(interval=1),
         "cpu_cores": psutil.cpu_count(logical=True),
         "mem_percent": vm.percent,

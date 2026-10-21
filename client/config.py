@@ -31,6 +31,22 @@ class Config:
         self.request_timeout: int = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "10"))
 
 
+def load_env_file(path: str) -> None:
+    """Load KEY=VALUE lines into os.environ (without overriding what's already
+    set). Windows has no systemd EnvironmentFile, so the scheduled task passes
+    --env-file instead. Tolerates comments, blank lines, quotes and a BOM."""
+    with open(path, encoding="utf-8-sig") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                value = value[1:-1]
+            os.environ.setdefault(key.strip(), value)
+
+
 def load_config() -> Config:
     try:
         return Config()

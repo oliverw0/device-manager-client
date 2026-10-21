@@ -1,22 +1,39 @@
 import logging
+import shutil
 
 import httpx
 
 from .config import Config
-from .collectors import apt, docker_containers, ssh_auth, system, tailscale, users
+from .collectors import apt, docker_containers, ssh_auth, system, tailscale, users, windows_update
+from .win import IS_WINDOWS
 
 logger = logging.getLogger("devicemanager.client")
 
 
-def gather_report(config: Config) -> dict:
+def _windows_info() -> dict:
+    """What the host needs to drive this box over SSH: which PowerShell to open
+    in the terminal (7 if installed, else the built-in 5.1), and the admin
+    account to run updates as (Windows has no root)."""
     return {
+        "shell": "pwsh" if shutil.which("pwsh") else "powershell",
+        "admin_user": users.windows_admin_user(),
+    }
+
+
+def gather_report(config: Config) -> dict:
+    report = {
         "system": system.collect(),
         "tailscale": tailscale.collect(),
         "ssh_auth": ssh_auth.collect(config.ssh_log_window_minutes),
         "docker_containers": docker_containers.collect(),
         "ssh_users": users.collect(),
-        "apt": apt.collect(),
+        # Windows Update fills the same slot as apt, so the host's "packages
+        # out of date" badge and alert work for both.
+        "apt": windows_update.collect() if IS_WINDOWS else apt.collect(),
     }
+    if IS_WINDOWS:
+        report["windows"] = _windows_info()
+    return report
 
 
 def send_report(config: Config, report: dict) -> bool:

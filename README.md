@@ -48,6 +48,54 @@ Installs a virtualenv and a systemd unit (`devicemanager-client`). Do not run
 both the Docker and native installs on one machine — they would report as the
 same device twice.
 
+## Install (Windows desktop or Server)
+
+Works on Windows 10/11 and Windows Server 2016+. (The PowerShell console needs
+OpenSSH Server, built in from Windows 10 1809 / Server 2019; on Server 2016 the
+installer points you to the Win32-OpenSSH MSI.) In an
+**elevated** PowerShell — the device's page on the dashboard has this prefilled:
+
+```
+$env:HOST_URL='http://your-host:8000'; $env:API_KEY='your-device-key'
+[Net.ServicePointManager]::SecurityProtocol = 'Tls12'
+irm https://raw.githubusercontent.com/oliverw0/device-manager-client/main/install.ps1 | iex
+```
+
+Or from a checkout: `powershell -ExecutionPolicy Bypass -File .\install.ps1 -HostUrl http://your-host:8000 -ApiKey your-device-key`.
+
+`install.ps1`:
+
+- Uses an existing all-users Python 3.10+, or installs Python 3.12 (signature-checked).
+- Installs to `C:\Program Files\DeviceManagerClient` (venv + code) and writes
+  config to `C:\ProgramData\DeviceManagerClient\client.env` (Administrators/SYSTEM only).
+- Runs a one-shot connectivity test, then registers the scheduled task
+  `DeviceManagerClient` that runs the client as SYSTEM at boot and restarts it
+  within 5 minutes if it ever stops.
+- Optionally sets up the in-browser **PowerShell** console: installs/enables
+  OpenSSH Server, opens port 22, and authorizes the host's key for the account
+  you choose (`provision-ssh.ps1`, re-runnable on its own). For admin accounts
+  the key goes in `C:\ProgramData\ssh\administrators_authorized_keys`, which is
+  where Windows OpenSSH looks for them.
+
+Useful commands afterwards:
+
+```
+Get-ScheduledTask DeviceManagerClient | Select-Object State
+Get-Content "$env:ProgramData\DeviceManagerClient\logs\client.log" -Tail 50 -Wait
+Restart-ScheduledTask DeviceManagerClient   # or Stop-/Start-ScheduledTask
+```
+
+On Windows the dashboard's console opens PowerShell 7 (`pwsh`) if installed,
+otherwise Windows PowerShell. Container controls work with Docker Desktop or
+Docker Engine. **Install Windows updates** installs pending updates through the
+Windows Update API (as a one-off SYSTEM task, since Windows blocks installs from
+SSH sessions) and never reboots — it tells you when a restart is needed.
+**Update client** re-runs `install.ps1 -Update`. Both need the authorized account
+to be a local administrator.
+
+Uninstall: `powershell -ExecutionPolicy Bypass -File "$env:ProgramFiles\DeviceManagerClient\uninstall.ps1"`
+(add `-RemoveConfig` to delete the config and logs too).
+
 ## Configuration (.env)
 
 | Variable | Default | Purpose |
@@ -57,6 +105,12 @@ same device twice.
 | `REPORT_INTERVAL` | `60` | Seconds between reports. |
 | `SSH_LOG_WINDOW_MINUTES` | `15` | Window for counting recent SSH logins. |
 | `REQUEST_TIMEOUT_SECONDS` | `10` | Per-request timeout when posting a report. |
+| `LOG_FILE` | (unset) | Also log to this file (rotated at 1 MB). Set by the Windows installer. |
+| `SSH_USER` | (unset) | Windows: the account the host uses for updates; written by `install.ps1` when it authorizes the key. |
+| `SSH_EXTRA_USERS` | (unset) | Windows: extra comma-separated logins for the console dropdown, e.g. domain accounts (`CORP\alice`). |
+
+On Windows the same keys live in `C:\ProgramData\DeviceManagerClient\client.env`;
+restart the scheduled task after editing it.
 
 ## What gets reported
 
@@ -66,6 +120,12 @@ same device twice.
   `TAILSCALE_SOCKET`.
 - SSH auth: recent accepted/failed logins from the journal or auth log.
 - Docker containers: name, image, status, CPU/memory, and Compose stack.
+
+On Windows the same report is built from Windows sources: the system drive for
+disk usage, the `tailscale` CLI, the `OpenSSH/Operational` event log for SSH
+logins, enabled local accounts (administrators first) for the console's user
+list, and Windows Update (pending updates from the local cache, last
+check/install, reboot pending) in place of apt.
 
 Any collector that has nothing to read degrades to empty rather than failing.
 
@@ -101,3 +161,5 @@ Sends one report and prints the result, including the Tailscale state it read.
 
 Docker: `git pull && docker compose up -d --build`.
 Native: `git pull && sudo ./install-native.sh`.
+Windows: the dashboard's **Update client** button, or
+`powershell -ExecutionPolicy Bypass -File "$env:ProgramFiles\DeviceManagerClient\install.ps1" -Update`.
