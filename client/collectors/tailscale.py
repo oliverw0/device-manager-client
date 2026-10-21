@@ -13,6 +13,10 @@ from ..win import IS_WINDOWS
 # inside the slim Docker image. Mount the host's /var/run/tailscale into the
 # container (see client/docker-compose.yml) and this just works.
 DEFAULT_SOCKET = "/var/run/tailscale/tailscaled.sock"
+# Synology's Tailscale package (started with `synopkgctl start Tailscale`) keeps
+# its socket and CLI inside the package folder instead.
+SYNOLOGY_SOCKETS = ("/var/packages/Tailscale/var/tailscaled.sock", "/var/packages/Tailscale/etc/tailscaled.sock")
+SYNOLOGY_CLI = "/var/packages/Tailscale/target/bin/tailscale"
 
 
 def _parse_status(data: dict) -> dict:
@@ -43,8 +47,9 @@ def _parse_status(data: dict) -> dict:
 def _via_localapi() -> dict | None:
     """Query tailscaled's LocalAPI over its unix socket. Returns parsed status,
     or None if the socket isn't present/reachable (so the caller can fall back)."""
-    sock_path = os.environ.get("TAILSCALE_SOCKET", DEFAULT_SOCKET)
-    if not os.path.exists(sock_path):
+    candidates = [os.environ["TAILSCALE_SOCKET"]] if os.environ.get("TAILSCALE_SOCKET") else [DEFAULT_SOCKET, *SYNOLOGY_SOCKETS]
+    sock_path = next((p for p in candidates if os.path.exists(p)), None)
+    if not sock_path:
         return None
     try:
         transport = httpx.HTTPTransport(uds=sock_path)
@@ -68,6 +73,8 @@ def _cli_path() -> str:
         exe = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Tailscale", "tailscale.exe")
         if os.path.exists(exe):
             return exe
+    elif os.path.exists(SYNOLOGY_CLI):
+        return SYNOLOGY_CLI
     return "tailscale"
 
 

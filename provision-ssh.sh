@@ -62,7 +62,9 @@ if [[ -z "${PUBKEY}" ]]; then
   exit 1
 fi
 
-USER_HOME="$(getent passwd "${SSH_USER}" | cut -d: -f6)"
+# getent isn't on every system (Synology DSM); /etc/passwd is.
+USER_HOME="$(getent passwd "${SSH_USER}" 2>/dev/null | cut -d: -f6 || true)"
+[[ -n "${USER_HOME}" ]] || USER_HOME="$(awk -F: -v u="${SSH_USER}" '$1 == u { print $6 }' /etc/passwd)"
 SSH_DIR="${USER_HOME}/.ssh"
 AUTH_KEYS="${SSH_DIR}/authorized_keys"
 install -d -m 700 "${SSH_DIR}"

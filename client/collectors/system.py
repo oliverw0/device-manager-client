@@ -133,7 +133,32 @@ def _docker_host_os() -> str | None:
         return None
 
 
+def _kv_file(*paths: str) -> dict:
+    """KEY="value" lines (os-release style) from the first readable path."""
+    for path in paths:
+        try:
+            with open(path) as f:
+                return {k.strip(): v.strip().strip('"') for k, _, v in (l.partition("=") for l in f) if v}
+        except OSError:
+            continue
+    return {}
+
+
+def _synology_version() -> str | None:
+    """Synology DSM has no useful os-release; its version lives in
+    /etc.defaults/VERSION. e.g. "DSM 7.3.1-86003 Update 1". The Docker client
+    sees it when that file is mounted at /host/etc.defaults/VERSION."""
+    v = _kv_file("/host/etc.defaults/VERSION", "/etc.defaults/VERSION")
+    if not v.get("productversion"):
+        return None
+    out = f"DSM {v['productversion']}" + (f"-{v['buildnumber']}" if v.get("buildnumber") else "")
+    return out + (f" Update {v['smallfixnumber']}" if v.get("smallfixnumber", "0") != "0" else "")
+
+
 def _linux_version() -> str | None:
+    dsm = _synology_version()
+    if dsm:
+        return dsm
     if os.path.exists("/.dockerenv") and not os.path.exists("/host/etc/os-release"):
         found = _docker_host_os()
         if found:
@@ -175,6 +200,9 @@ def _hardware_model() -> str | None:
             with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\BIOS") as k:
                 parts = [str(winreg.QueryValueEx(k, n)[0]).strip() for n in ("SystemManufacturer", "SystemProductName")]
             return " ".join(p for p in parts if p) or None
+        syno = _kv_file("/host/etc/synoinfo.conf", "/etc/synoinfo.conf").get("upnpmodelname")
+        if syno:
+            return f"Synology {syno}"
         model = _read("/sys/firmware/devicetree/base/model")
         if model:
             return model
