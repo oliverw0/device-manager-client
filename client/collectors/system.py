@@ -11,7 +11,12 @@ from ..win import IS_WINDOWS
 def _local_ip():
     """Primary LAN IP (the source address on the default route). Used as a
     fallback SSH target when the Tailscale address isn't reachable. No packets
-    are sent — the UDP connect just resolves which interface would be used."""
+    are sent — the UDP connect just resolves which interface would be used.
+    None in the Docker client: there it's the container's bridge address
+    (172.17.x), which the host can't use and may even reach another machine
+    with; the host falls back to the address the report came from instead."""
+    if os.path.exists("/.dockerenv"):
+        return None
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("8.8.8.8", 80))
@@ -151,6 +156,34 @@ def _os_version() -> str | None:
         return None
 
 
+def _read(path: str) -> str:
+    try:
+        with open(path, "rb") as f:
+            return f.read().replace(b"\0", b"").decode("utf-8", "replace").strip()
+    except OSError:
+        return ""
+
+
+def _hardware_model() -> str | None:
+    """e.g. "Apple MacBook Air (M1, 2020)", "Dell Inc. OptiPlex 7070".
+    ARM boards (Apple Silicon, Raspberry Pi) name themselves in the device tree;
+    PCs in DMI. Docker hides /sys/firmware, so the Docker client may get None."""
+    try:
+        if IS_WINDOWS:
+            import winreg
+
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\BIOS") as k:
+                parts = [str(winreg.QueryValueEx(k, n)[0]).strip() for n in ("SystemManufacturer", "SystemProductName")]
+            return " ".join(p for p in parts if p) or None
+        model = _read("/sys/firmware/devicetree/base/model")
+        if model:
+            return model
+        vendor, product = _read("/sys/class/dmi/id/sys_vendor"), _read("/sys/class/dmi/id/product_name")
+        return " ".join(p for p in (vendor, product) if p and p.lower() not in ("to be filled by o.e.m.", "system product name")) or None
+    except Exception:
+        return None
+
+
 def collect() -> dict:
     vm = psutil.virtual_memory()
     du = psutil.disk_usage(_disk_root())
@@ -158,6 +191,10 @@ def collect() -> dict:
         "hostname": _hostname(),
         "os": "windows" if IS_WINDOWS else platform.system().lower(),
         "os_version": _os_version(),
+        # The kernel is the machine's even inside the Docker client (it's shared),
+        # so it still identifies e.g. Asahi Linux when /sys/firmware is hidden.
+        "kernel": None if IS_WINDOWS else (platform.release() or None),
+        "hardware_model": _hardware_model(),
         "cpu_percent": psutil.cpu_percent(interval=1),
         "cpu_cores": psutil.cpu_count(logical=True),
         "mem_percent": vm.percent,
