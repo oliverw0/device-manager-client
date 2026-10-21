@@ -28,9 +28,16 @@ $EnvFile = Join-Path $env:ProgramData 'DeviceManagerClient\client.env'
 if (-not $HostUrl -and (Test-Path $EnvFile)) {
     foreach ($line in Get-Content $EnvFile) { if ($line -match '^HOST_URL=(.*)$') { $HostUrl = $Matches[1].Trim() } }
 }
-if (-not $HostUrl) { $HostUrl = Read-Host 'DeviceManager host URL (e.g. http://192.168.50.225:8000)' }
-$HostUrl = $HostUrl.Trim().TrimEnd('/')
-if ($HostUrl -notmatch '^https?://') { $HostUrl = "http://$HostUrl" }
+while ($true) {
+    if ($HostUrl) {
+        $HostUrl = $HostUrl.Trim().TrimEnd('/')
+        if ($HostUrl -notmatch '^https?://') { $HostUrl = "http://$HostUrl" }
+        $parsed = $null
+        if ([Uri]::TryCreate($HostUrl, 'Absolute', [ref]$parsed) -and $parsed.Host) { break }
+        Write-Host "'$HostUrl' is not a valid URL." -ForegroundColor Yellow
+    }
+    $HostUrl = Read-Host 'DeviceManager host URL (e.g. http://192.168.50.225:8000)'
+}
 
 if (-not $User) {
     $User = Read-Host "Local account to authorize [$env:USERNAME]"

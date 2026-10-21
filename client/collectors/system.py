@@ -53,6 +53,47 @@ def _disk_root() -> str:
     return "/"
 
 
+# Mounted filesystems that aren't real drives (snap images, container layers, RAM disks).
+_SKIP_FSTYPES = {"squashfs", "overlay", "tmpfs", "devtmpfs", "iso9660", "udf", ""}
+
+
+def _volume_label(mount: str) -> str | None:
+    if not IS_WINDOWS:
+        return None
+    import ctypes
+
+    buf = ctypes.create_unicode_buffer(261)
+    ok = ctypes.windll.kernel32.GetVolumeInformationW(mount, buf, len(buf), None, None, None, None, 0)
+    return buf.value or None if ok else None
+
+
+def _disks() -> list[dict]:
+    """Every fixed drive, system drive first. In the Docker client this only sees
+    the container's own mounts, so it usually reports just the root."""
+    out, seen = [], set()
+    for part in psutil.disk_partitions(all=False):
+        if part.fstype.lower() in _SKIP_FSTYPES or part.device in seen:
+            continue
+        if IS_WINDOWS and "fixed" not in part.opts:  # skips CD drives and USB sticks
+            continue
+        try:
+            du = psutil.disk_usage(part.mountpoint)
+        except OSError:  # unmounted / no media
+            continue
+        seen.add(part.device)
+        out.append({
+            "mount": part.mountpoint,
+            "label": _volume_label(part.mountpoint),
+            "fstype": part.fstype,
+            "percent": du.percent,
+            "used_bytes": du.used,
+            "total_bytes": du.total,
+        })
+    root = _disk_root().lower()
+    out.sort(key=lambda d: (d["mount"].lower() != root, d["mount"]))
+    return out
+
+
 def _windows_version() -> str | None:
     """e.g. "Windows Server 2022 Datacenter (21H2)" or "Windows 11 Pro (24H2)".
     ProductName still says "Windows 10" on Windows 11, so fix it up by build."""
@@ -109,6 +150,7 @@ def collect() -> dict:
         "disk_percent": du.percent,
         "disk_used_bytes": du.used,
         "disk_total_bytes": du.total,
+        "disks": _disks(),
         "uptime_seconds": _uptime_seconds(),
         "local_ip": _local_ip(),
     }
