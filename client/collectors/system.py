@@ -30,7 +30,9 @@ def _local_ip():
 def _hostname() -> str:
     """Real machine name. In a container socket.gethostname() is the container
     id, so prefer the host's /etc/hostname when it's mounted at /host (see
-    docker-compose.yml). Native installs fall through to socket."""
+    docker-compose.yml), else ask the Docker daemon (a compose file set up by
+    hand, e.g. in Synology Container Manager, may lack that mount). Native
+    installs fall through to socket."""
     try:
         with open("/host/etc/hostname") as f:
             name = f.read().strip()
@@ -38,6 +40,15 @@ def _hostname() -> str:
                 return name
     except OSError:
         pass
+    if os.path.exists("/.dockerenv"):
+        try:
+            import docker
+
+            name = docker.from_env(timeout=5).info().get("Name")
+            if name:
+                return name
+        except Exception:
+            pass
     return socket.gethostname()
 
 
