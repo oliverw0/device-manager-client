@@ -3,6 +3,7 @@ import shutil
 
 import httpx
 
+from . import __version__
 from .config import Config
 from .collectors import apt, docker_containers, ssh_auth, system, tailscale, users, windows_update
 from .win import IS_WINDOWS
@@ -30,6 +31,7 @@ def gather_report(config: Config) -> dict:
         # Windows Update fills the same slot as apt, so the host's "packages
         # out of date" badge and alert work for both.
         "apt": windows_update.collect() if IS_WINDOWS else apt.collect(),
+        "agent_version": __version__,
     }
     if IS_WINDOWS:
         report["windows"] = _windows_info()
