@@ -1,5 +1,5 @@
 [Unit]
-Description=Proxmox host power estimate (HTTP on :9105)
+Description=Power estimate for DeviceManager (HTTP on :9105)
 After=network-online.target
 
 [Service]

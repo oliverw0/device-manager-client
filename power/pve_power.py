@@ -11,6 +11,10 @@ Model
   Guests  CPU power split across LXCs/VMs by their share of CPU time (cgroup v2)
   Cal     wall = raw_estimate * CAL_SCALE + CAL_OFFSET  (see README)
 
+Apple Silicon (Asahi Linux) has no RAPL, but its SMC measures power itself
+(macsmc_hwmon: AC input, total system, SoC "heatpipe"), so there it reports
+those readings instead, plus the USB-C charger's loss (CHARGER_EFFICIENCY).
+
 Usage (as root, RAPL counters are root-only)
   pve_power.py                    live view in the terminal
   pve_power.py --once --json      one sample as JSON
@@ -71,6 +75,10 @@ PSU_CURVE = [
 CAL_SCALE = 1.0                # set after comparing with a wall meter
 CAL_OFFSET = 0.0
 
+# Apple Silicon: the SMC measures DC power at the USB-C port; the brick's own loss
+# isn't visible, so wall = AC input / this. Set after comparing with a wall meter.
+CHARGER_EFFICIENCY = 0.85
+
 STATE_FILE = "/var/lib/pve-power/state.json"   # cumulative kWh survives restarts
 PRICE_PER_KWH = None           # e.g. 0.30 to show cost per day; None hides it
 STANDBY_CHECK_S = 60           # how often to ask the HDD whether it is spun down
@@ -115,6 +123,21 @@ class Rapl:
             out[k] = d / 1e6 / dt_s
         self.last = now
         return out
+
+
+def smc_sensors():
+    """Apple SMC power sensors (watts by label), or None when this isn't a Mac."""
+    for h in glob.glob("/sys/class/hwmon/hwmon*"):
+        try:
+            if read_text(os.path.join(h, "name")) != "macsmc_hwmon":
+                continue
+            out = {}
+            for f in glob.glob(os.path.join(h, "power*_input")):
+                out[read_text(f.replace("_input", "_label"))] = read_int(f) / 1e6
+            return out if "AC Input Power" in out else None
+        except (OSError, ValueError):
+            continue
+    return None
 
 
 def read_cpu_jiffies():
@@ -352,6 +375,54 @@ class Estimator:
         return result
 
 
+class SmcEstimator(Estimator):
+    """Apple Silicon: measured, not modelled. Shares energy persistence."""
+
+    def __init__(self):
+        self.energy_wh = self._load_energy()
+        self.last_save = self.last_t = time.monotonic()
+        self.last_cpu = read_cpu_jiffies()
+
+    def sample(self):
+        now = time.monotonic()
+        dt_s = max(now - self.last_t, 1e-3)
+        self.last_t = now
+        total, busy = read_cpu_jiffies()
+        d_total, d_busy = total - self.last_cpu[0], busy - self.last_cpu[1]
+        self.last_cpu = (total, busy)
+
+        w = smc_sensors() or {}
+        ac_in = w.get("AC Input Power", 0.0)
+        system = w.get("Total System Power", 0.0)
+        soc = w.get("Heatpipe Power", 0.0)
+        wall = ac_in / CHARGER_EFFICIENCY * CAL_SCALE + CAL_OFFSET if ac_in > 0 else 0.0
+        comps = {"soc": soc, "rest_of_system": max(system - soc, 0.0)}
+        if ac_in - system > 0.5:   # below that it is just the two sensors read a moment apart
+            comps["battery_charging"] = ac_in - system
+        if ac_in > 0:
+            comps["charger_loss"] = ac_in / CHARGER_EFFICIENCY - ac_in
+
+        self.energy_wh += wall * dt_s / 3600
+        if now - self.last_save >= 60:
+            self.save_energy()
+            self.last_save = now
+        return {
+            "timestamp": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            "wall_w": round(wall, 1),
+            "wall_raw_w": round(ac_in, 1),
+            "dc_load_w": round(system, 1),
+            "psu_efficiency": None,       # an assumption here, not a curve: don't show it
+            "on_battery": ac_in <= 0,
+            "cpu_util": round(d_busy / d_total, 3) if d_total > 0 else 0.0,
+            "cpu_core_w": round(soc, 2),
+            "igpu_w": 0.0,
+            "energy_kwh": round(self.energy_wh / 1000, 4),
+            "components": {k: round(v, 2) for k, v in comps.items()},
+            "drives": {},
+            "guests": [],
+        }
+
+
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
@@ -361,7 +432,7 @@ def render_terminal(r):
         f"Proxmox power estimate   {r['timestamp']}",
         "",
         f"  WALL (est.)   {r['wall_w']:7.1f} W     DC load {r['dc_load_w']:.1f} W, "
-        f"PSU eff {r['psu_efficiency'] * 100:.1f}%",
+        f"PSU eff {(r['psu_efficiency'] or 0) * 100:.1f}%",
         f"  CPU util      {r['cpu_util'] * 100:6.1f} %     cores {r['cpu_core_w']:.1f} W, iGPU {r['igpu_w']:.1f} W",
         f"  Energy total  {r['energy_kwh']:8.3f} kWh",
     ]
@@ -468,7 +539,7 @@ def main():
     if os.geteuid() != 0:
         sys.exit("run as root: RAPL energy counters are only readable by root")
 
-    est = Estimator()
+    est = SmcEstimator() if smc_sensors() else Estimator()
 
     if args.serve:
         serve(est, args.bind, args.serve)
