@@ -1,0 +1,13 @@
+[Unit]
+Description=Proxmox host power estimate (HTTP on :9105)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/bin/pve_power.py --serve 9105
+Restart=on-failure
+RestartSec=10
+User=root
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

@@ -5,7 +5,7 @@ import httpx
 
 from . import __version__
 from .config import Config
-from .collectors import apt, docker_containers, ssh_auth, system, tailscale, users, windows_update
+from .collectors import apt, docker_containers, power, ssh_auth, system, tailscale, users, windows_update
 from .win import IS_WINDOWS
 
 logger = logging.getLogger("devicemanager.client")
@@ -35,6 +35,9 @@ def gather_report(config: Config) -> dict:
     }
     if IS_WINDOWS:
         report["windows"] = _windows_info()
+    watts = power.collect()
+    if watts:
+        report["power"] = watts
     return report
 
 
