@@ -6,11 +6,15 @@ watts, cumulative kWh, a per-component breakdown and each Proxmox guest's share
 on :9105/json. POWER_URL overrides the address ("off" disables); machines
 without an exporter just report nothing.
 """
+import json
 import os
 import socket
 import struct
+import time
 
 import httpx
+
+from ..win import IS_WINDOWS
 
 PORT = 9105
 
@@ -40,20 +44,45 @@ def _urls() -> list[str]:
     return urls
 
 
-def collect() -> dict | None:
+def _windows_reading() -> dict | None:
+    """Windows: power/win_power.ps1 writes its readings to a file every few
+    seconds instead of serving HTTP. Ignored once stale (the exporter stopped)."""
+    path = os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "DeviceManagerClient", "power.json")
+    try:
+        if time.time() - os.path.getmtime(path) > 60:
+            return None
+        with open(path, encoding="utf-8-sig") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _readings():
+    if IS_WINDOWS and not os.environ.get("POWER_URL"):
+        yield _windows_reading()
+        return
     for url in _urls():
         if url.lower() in ("off", "none"):
-            return None
+            return
         try:
-            data = httpx.get(url, timeout=2).json()
+            yield httpx.get(url, timeout=2).json()
+        except (httpx.HTTPError, ValueError):
+            continue
+
+
+def collect() -> dict | None:
+    for data in _readings():
+        try:
             wall = float(data["wall_w"])
-        except (httpx.HTTPError, ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError):
             continue
         return {
             "wall_w": wall,
             "energy_kwh": data.get("energy_kwh"),
             "dc_load_w": data.get("dc_load_w"),
             "psu_efficiency": data.get("psu_efficiency"),
+            "psu": data.get("psu"),                    # Windows: which PSU curve the estimate uses
+            "cpu_measured": data.get("cpu_measured"),  # Windows: False if the CPU sensor isn't readable
             "components": {k: v for k, v in (data.get("components") or {}).items() if isinstance(v, (int, float))},
             "guests": [
                 {"name": g.get("name"), "type": g.get("type"), "vmid": g.get("vmid"), "cpu_w": g.get("cpu_w")}
