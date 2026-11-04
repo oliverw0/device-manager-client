@@ -12,22 +12,28 @@ SERVICE_FILE="/etc/systemd/system/devicemanager-client.service"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "${EUID}" -ne 0 ]]; then
-  echo "Run this script as root (sudo ./install.sh)" >&2
+  echo "Run this script as root (sudo bash ./install-native.sh)" >&2
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "python3 is required but was not found on PATH" >&2
-  exit 1
-fi
-
-if ! python3 -m venv --help >/dev/null 2>&1; then
-  if command -v apt-get >/dev/null 2>&1; then
-    echo "Installing python3-venv via apt-get..."
-    apt-get update -y && apt-get install -y python3-venv
-  else
-    echo "python3-venv is required but not available; install it manually" >&2
+# Dependencies: python3 with venv + ensurepip (Debian splits these into
+# python3-venv / python3.X-venv, and `python3 -m venv --help` works without
+# them), and curl for the SSH step. Installed with apt-get when missing.
+need=()
+command -v python3 >/dev/null 2>&1 || need+=(python3)
+python3 -c 'import ensurepip, venv' >/dev/null 2>&1 || need+=(python3-venv)
+command -v curl >/dev/null 2>&1 || need+=(curl ca-certificates)
+if (( ${#need[@]} )); then
+  if ! command -v apt-get >/dev/null 2>&1; then
+    echo "Missing: ${need[*]}. Install them with your package manager, then re-run this script." >&2
     exit 1
+  fi
+  echo "Installing ${need[*]} with apt-get..."
+  apt-get update -qq
+  apt-get install -y -qq "${need[@]}"
+  # python3-venv is a metapackage on most releases; add the versioned one if ensurepip is still missing
+  if ! python3 -c 'import ensurepip' >/dev/null 2>&1; then
+    apt-get install -y -qq "python$(python3 -c 'import sys; print(f"{sys.version_info[0]}.{sys.version_info[1]}")')-venv"
   fi
 fi
 
@@ -36,9 +42,15 @@ mkdir -p "${INSTALL_DIR}"
 cp -r "${SCRIPT_DIR}/client" "${INSTALL_DIR}/"
 cp "${SCRIPT_DIR}/requirements.txt" "${INSTALL_DIR}/"
 
-python3 -m venv "${INSTALL_DIR}/venv"
-"${INSTALL_DIR}/venv/bin/pip" install --no-cache-dir --upgrade pip
-"${INSTALL_DIR}/venv/bin/pip" install --no-cache-dir -r "${INSTALL_DIR}/requirements.txt"
+python3 -m venv --clear "${INSTALL_DIR}/venv"  # --clear: a half-made venv from a failed run is rebuilt
+"${INSTALL_DIR}/venv/bin/pip" install -q --no-cache-dir --upgrade pip
+if ! "${INSTALL_DIR}/venv/bin/pip" install -q --no-cache-dir -r "${INSTALL_DIR}/requirements.txt"; then
+  # no prebuilt psutil wheel for this CPU/Python: build it
+  command -v apt-get >/dev/null 2>&1 || { echo "pip install failed (see above)." >&2; exit 1; }
+  echo "Installing build tools to compile the Python packages..."
+  apt-get install -y -qq gcc python3-dev
+  "${INSTALL_DIR}/venv/bin/pip" install -q --no-cache-dir -r "${INSTALL_DIR}/requirements.txt"
+fi
 
 # --- config: write ${ENV_FILE} on first run, then reuse it so your HOST_URL /
 # API_KEY persist across reinstalls. Pass HOST_URL=... API_KEY=... to overwrite,

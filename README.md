@@ -41,10 +41,13 @@ docker compose down
 ## Install (native, no Docker)
 
 ```
-sudo ./install-native.sh
+sudo bash ./install-native.sh   # or as root: bash ./install-native.sh
 ```
 
-Installs a virtualenv and a systemd unit (`devicemanager-client`). Do not run
+Installs anything missing with apt-get (python3, python3-venv / python3.X-venv,
+curl), then a virtualenv and a systemd unit (`devicemanager-client`). The
+dashboard's Add device dialog has a one-line version that also installs git and
+clones this repo. Do not run
 both the Docker and native installs on one machine — they would report as the
 same device twice.
 
@@ -160,6 +163,6 @@ Sends one report and prints the result, including the Tailscale state it read.
 ## Updating
 
 Docker: `git pull && docker compose up -d --build`.
-Native: `git pull && sudo ./install-native.sh`.
+Native: the dashboard's **Update client** button, or `git pull && sudo bash ./install-native.sh`.
 Windows: the dashboard's **Update client** button, or
 `powershell -ExecutionPolicy Bypass -File "$env:ProgramFiles\DeviceManagerClient\install.ps1" -Update`.
