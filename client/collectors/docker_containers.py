@@ -81,6 +81,18 @@ def _fetch_stats(container):
         return container.id, None
 
 
+def _ports(attrs: dict) -> list[int]:
+    """Host ports the container publishes, e.g. {"80/tcp": [{"HostPort": "8080"}]} -> [8080]."""
+    out = set()
+    for bindings in ((attrs.get("NetworkSettings") or {}).get("Ports") or {}).values():
+        for b in bindings or []:
+            try:
+                out.add(int(b.get("HostPort")))
+            except (TypeError, ValueError):
+                pass
+    return sorted(out)
+
+
 def collect() -> list[dict]:
     try:
         import docker
@@ -110,7 +122,8 @@ def collect() -> list[dict]:
         try:
             image_tags = c.image.tags
             image = image_tags[0] if image_tags else c.image.short_id
-            started_at = (c.attrs.get("State") or {}).get("StartedAt")
+            state = c.attrs.get("State") or {}
+            started_at = state.get("StartedAt")
             stats = stats_map.get(c.id)
             result.append(
                 {
@@ -121,6 +134,11 @@ def collect() -> list[dict]:
                     "stack": (c.labels or {}).get("com.docker.compose.project"),
                     "cpu_percent": _calc_cpu_percent(stats) if stats else None,
                     "mem_percent": _calc_mem_percent(stats) if stats else None,
+                    # None when the image has no HEALTHCHECK
+                    "health": (state.get("Health") or {}).get("Status"),
+                    # restarts by the restart policy: a loop shows as a climbing count
+                    "restart_count": c.attrs.get("RestartCount"),
+                    "ports": _ports(c.attrs),
                 }
             )
         except Exception:
@@ -143,4 +161,7 @@ if __name__ == "__main__":  # ponytail: Windows-container stats self-check
         "precpu_stats": {"cpu_usage": {"total_usage": 100}, "system_cpu_usage": 1000},
     }
     assert _calc_cpu_percent(linux) == 20.0
+    attrs = {"NetworkSettings": {"Ports": {"80/tcp": [{"HostIp": "0.0.0.0", "HostPort": "8080"}, {"HostIp": "::", "HostPort": "8080"}],
+                                           "443/tcp": None, "53/udp": [{"HostPort": "53"}]}}}
+    assert _ports(attrs) == [53, 8080] and _ports({}) == []
     print("ok")
